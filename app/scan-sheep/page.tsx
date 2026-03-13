@@ -13,7 +13,7 @@ function ScanSheepContent() {
   const searchParams = useSearchParams();
   const listParam = searchParams.get("list");
 
-  const [step, setStep] = useState<"camera" | "ocr" | "confirm" | "list">("camera");
+  const [step, setStep] = useState<"camera" | "ocr" | "confirm" | "list" | "manual">("camera");
   const [imageBlob, setImageBlob] = useState<Blob | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<string[]>([]);
@@ -33,7 +33,6 @@ function ScanSheepContent() {
       const { candidates: cands } = await extractEarTagFromImage(blob);
       setCandidates(cands);
       setSelectedEarTag(cands[0] ?? "");
-      setStep("confirm");
     } catch (err) {
       console.error(err);
       setCandidates([]);
@@ -76,10 +75,11 @@ function ScanSheepContent() {
     try {
       let photoUrl: string | null = null;
       if (imageBlob && isSupabaseConfigured) {
-        const fileName = `ear-tag-${Date.now()}-${selectedEarTag}.jpg`;
+        const ext = imageBlob.type.includes("png") ? "png" : "jpg";
+        const fileName = `ear-tag-${Date.now()}-${selectedEarTag}.${ext}`;
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from(STORAGE_BUCKETS.EAR_TAG_PHOTOS)
-          .upload(fileName, imageBlob, { contentType: "image/jpeg", upsert: true });
+          .upload(fileName, imageBlob, { contentType: imageBlob.type, upsert: true });
         if (!uploadError && uploadData) {
           const { data: urlData } = supabase.storage
             .from(STORAGE_BUCKETS.EAR_TAG_PHOTOS)
@@ -129,7 +129,55 @@ function ScanSheepContent() {
       </div>
 
       {step === "camera" && (
-        <CameraCapture onCapture={handleCapture} />
+        <div className="space-y-4">
+          <CameraCapture onCapture={handleCapture} />
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedEarTag("");
+              setStep("manual");
+            }}
+            className="btn-secondary w-full"
+          >
+            Escribir número manualmente (sin foto)
+          </button>
+        </div>
+      )}
+
+      {step === "manual" && (
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Número de crotal
+            </label>
+            <input
+              type="text"
+              value={selectedEarTag}
+              onChange={(e) => setSelectedEarTag(e.target.value)}
+              placeholder="ES121234512345"
+              className="input-field text-lg"
+              maxLength={14}
+              autoFocus
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              ES + 2 díg. CCAA + 5 granja + 5 animal
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <button type="button" onClick={() => setStep("camera")} className="btn-secondary flex-1">
+              Volver
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirm}
+              disabled={!selectedEarTag.trim() || loading}
+              className="btn-primary flex-1 flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+              Siguiente
+            </button>
+          </div>
+        </div>
       )}
 
       {step === "ocr" && (
@@ -148,9 +196,14 @@ function ScanSheepContent() {
               className="w-full aspect-[4/3] object-cover rounded-2xl"
             />
           )}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+            <p className="text-sm text-amber-800 font-medium">
+              Revisa el número — el OCR puede fallar. Si no es correcto, escríbelo manualmente.
+            </p>
+          </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
-              Número de crotal
+              Número de crotal (edita si es necesario)
             </label>
             <input
               type="text"
@@ -158,6 +211,7 @@ function ScanSheepContent() {
               onChange={(e) => setSelectedEarTag(e.target.value)}
               placeholder="ES121234512345"
               className="input-field text-lg"
+              maxLength={14}
             />
             <p className="mt-1 text-xs text-slate-400">
               Formato: ES + 2 díg. CCAA + 5 granja + 5 animal (12 dígitos)

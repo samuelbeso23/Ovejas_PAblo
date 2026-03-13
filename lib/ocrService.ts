@@ -3,7 +3,34 @@ import { createWorker, PSM } from "tesseract.js";
 type ImageSource = string | File | Blob;
 
 /**
- * Preprocesa la imagen para mejorar el OCR: escala 2x, escala de grises, contraste
+ * Rota imagen 180° (para crotales que salen invertidos)
+ */
+async function rotateImage180(dataUrl: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(null);
+        return;
+      }
+      ctx.translate(canvas.width, canvas.height);
+      ctx.rotate(Math.PI);
+      ctx.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * Preprocesa para crotales amarillos con texto negro:
+ * - Escala 2x
+ * - Binarización (negro/blanco) para mejorar contraste
  */
 async function preprocessForOCR(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -11,7 +38,7 @@ async function preprocessForOCR(blob: Blob): Promise<string> {
     const url = URL.createObjectURL(blob);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const scale = 2; // Tesseract funciona mejor con imágenes más grandes
+      const scale = 2;
       const w = img.naturalWidth * scale;
       const h = img.naturalHeight * scale;
       const canvas = document.createElement("canvas");
@@ -25,11 +52,11 @@ async function preprocessForOCR(blob: Blob): Promise<string> {
       ctx.drawImage(img, 0, 0, w, h);
       const imageData = ctx.getImageData(0, 0, w, h);
       const data = imageData.data;
-      // Escala de grises + aumento de contraste
+      // Binarización: texto negro sobre amarillo -> negro=0, resto=255
       for (let i = 0; i < data.length; i += 4) {
         const g = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-        const c = Math.min(255, Math.max(0, (g - 128) * 1.5 + 128));
-        data[i] = data[i + 1] = data[i + 2] = c;
+        const v = g < 140 ? 0 : 255; // Umbral para negro sobre fondo claro
+        data[i] = data[i + 1] = data[i + 2] = v;
       }
       ctx.putImageData(imageData, 0, 0);
       resolve(canvas.toDataURL("image/png"));
@@ -43,17 +70,16 @@ async function preprocessForOCR(blob: Blob): Promise<string> {
 }
 
 /**
- * OCR optimizado para crotales: solo reconoce dígitos y ES
+ * OCR para crotales: SIN whitelist (evita forzar caracteres erróneos)
+ * Ejecuta 2 pasadas: normal y con whitelist, combina resultados
  */
 export async function recognizeEarTagText(imageSource: ImageSource): Promise<string> {
   let processedSource: string | Blob | File = typeof imageSource === "string"
     ? imageSource
     : imageSource;
 
-  if (imageSource instanceof Blob && !(imageSource instanceof File)) {
-    processedSource = await preprocessForOCR(imageSource);
-  } else if (imageSource instanceof File) {
-    processedSource = await preprocessForOCR(imageSource);
+  if (typeof imageSource !== "string") {
+    processedSource = await preprocessForOCR(imageSource as Blob);
   }
 
   const worker = await createWorker("eng", 1, {
@@ -65,90 +91,87 @@ export async function recognizeEarTagText(imageSource: ImageSource): Promise<str
   });
 
   try {
-    await worker.setParameters({
-      tessedit_char_whitelist: "0123456789ES",
-      tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
-    });
-    const { data } = await worker.recognize(processedSource);
-    return data.text;
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
+    // Rotación automática + probar también girado 180° (crotales suelen salir invertidos)
+    const { data: data1 } = await worker.recognize(processedSource, { rotateAuto: true });
+    const text1 = data1.text;
+    const cands1 = extractEarTagCandidates(text1);
+    if (cands1.length > 0) return text1;
+    // Si no detectó nada, probar con rotación 180° explícita
+    const rotated = typeof processedSource === "string" ? await rotateImage180(processedSource) : null;
+    if (rotated) {
+      const { data: data2 } = await worker.recognize(rotated, { rotateAuto: false });
+      const cands2 = extractEarTagCandidates(data2.text);
+      if (cands2.length > cands1.length) return data2.text;
+    }
+    return text1;
   } finally {
     await worker.terminate();
   }
 }
 
 /**
- * Formato crotal español:
- * Línea 1: ES (país) + 2 dígitos (comunidad autónoma)
- * Línea 2: 5 dígitos (código granja)
- * Línea 3: 5 dígitos (número animal)
- * Total: ES + 12 dígitos (ej: ES121234512345)
+ * Formato crotal: ES + 2 (CCAA) + 5 (granja) + 5 (animal) = 12 dígitos
+ * Extracción muy permisiva para capturar lo que el OCR lea
  */
 export function extractEarTagCandidates(text: string): string[] {
   const candidates: string[] = [];
+  const clean = (s: string) => s.replace(/[\s\-\.]/g, "").toUpperCase();
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
-  // 1. Combinar líneas: el OCR puede leer cada línea por separado
-  const allDigits = lines
-    .flatMap((l) => l.match(/\d+/g) ?? [])
-    .join("");
-  const allText = lines.join(" ").replace(/\s/g, "");
+  // Normalizar E5/ES/3S etc. que el OCR puede confundir
+  const norm = text.replace(/\bE5\b/gi, "ES").replace(/\b3S\b/gi, "ES");
 
-  // 2. Patrón exacto: ES + 2 + 5 + 5 = 12 dígitos
-  const fullPattern = /ES\s*\d{2}\s*\d{5}\s*\d{5}/gi;
-  const fullMatches = text.match(fullPattern);
-  if (fullMatches) {
-    candidates.push(...fullMatches.map((m) => m.replace(/\s/g, "").toUpperCase()));
+  // 1. ES + 12 dígitos (con espacios)
+  const es12 = /E[S5]\s*(\d{2})\s*(\d{5})\s*(\d{5})/gi;
+  let m;
+  while ((m = es12.exec(norm)) !== null) {
+    candidates.push(`ES${m[1]}${m[2]}${m[3]}`);
   }
 
-  // 3. Si tenemos ES y 12 dígitos seguidos
-  const es12Pattern = /ES\s*(\d{12})/gi;
-  let m;
-  while ((m = es12Pattern.exec(text)) !== null) {
+  // 2. ES + 12 dígitos seguidos
+  const es12flat = /E[S5]\s*(\d{12})/gi;
+  while ((m = es12flat.exec(norm)) !== null) {
     candidates.push(`ES${m[1]}`);
   }
 
-  // 4. Reconstruir desde líneas: ES en primera, 2+5+5 en siguientes
-  if (lines.length >= 2) {
-    const first = lines[0].replace(/\s/g, "").toUpperCase();
-    if (first.startsWith("ES") || first === "ES") {
-      const nums = lines.slice(1).flatMap((l) => l.match(/\d+/g) ?? []).join("");
-      if (nums.length >= 12) {
-        candidates.push(`ES${nums.slice(0, 12)}`);
-      }
-    }
+  // 3. Solo 12 dígitos en el texto (2+5+5) - añadir ES
+  const block = /(\d{2})\s*(\d{5})\s*(\d{5})/g;
+  while ((m = block.exec(text)) !== null) {
+    candidates.push(`ES${m[1]}${m[2]}${m[3]}`);
   }
 
-  // 5. Solo dígitos en orden: 2+5+5 (si hay ES en el texto)
-  if (text.toUpperCase().includes("ES") && allDigits.length >= 12) {
+  // 4. Todos los dígitos en orden (si hay 12+)
+  const allDigits = text.replace(/\D/g, "");
+  if (allDigits.length >= 12) {
     candidates.push(`ES${allDigits.slice(0, 12)}`);
   }
 
-  // 6. Cualquier ES + números (fallback)
-  const esAny = /ES\s*\d{8,14}/gi;
-  const esAnyMatches = text.match(esAny);
-  if (esAnyMatches) {
-    candidates.push(...esAnyMatches.map((x) => x.replace(/\s/g, "").toUpperCase()));
+  // 5. Por líneas: línea 1 = ES+2, líneas 2-3 = 5+5
+  if (lines.length >= 3) {
+    const l1 = clean(lines[0]);
+    const l2 = (lines[1].match(/\d+/g) ?? []).join("");
+    const l3 = (lines[2].match(/\d+/g) ?? []).join("");
+    if ((l1.startsWith("ES") || l1.startsWith("E5")) && l2.length >= 5 && l3.length >= 5) {
+      const n2 = l2.slice(0, 5);
+      const n3 = l3.slice(0, 5);
+      const n1 = l1.replace(/\D/g, "").slice(0, 2);
+      if (n1.length === 2) candidates.push(`ES${n1}${n2}${n3}`);
+    }
   }
 
-  // 7. Secuencia 12 dígitos (2+5+5) sin ES
-  if (/\d{2}\s*\d{5}\s*\d{5}/.test(text)) {
-    const match = text.match(/(\d{2})\s*(\d{5})\s*(\d{5})/);
-    if (match) candidates.push(`ES${match[1]}${match[2]}${match[3]}`);
-  }
-
-  // Filtrar: formato válido ES + 12 dígitos
-  let valid = candidates
-    .map((c) => c.replace(/\s/g, "").toUpperCase())
+  // Filtrar: solo ES + 12 dígitos (o 10-14 como fallback)
+  let valid = Array.from(new Set(candidates))
+    .map((c) => clean(c))
     .filter((c) => /^ES\d{12}$/.test(c));
 
-  // Fallback: ES + 10-14 dígitos si no hay exactos
   if (valid.length === 0) {
-    valid = candidates
-      .map((c) => c.replace(/\s/g, "").toUpperCase())
+    valid = Array.from(new Set(candidates))
+      .map((c) => clean(c))
       .filter((c) => /^ES\d{10,14}$/.test(c));
   }
 
-  return Array.from(new Set(valid));
+  return valid;
 }
 
 /**
