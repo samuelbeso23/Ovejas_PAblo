@@ -92,9 +92,10 @@ export default function AddExpensePage() {
 
       if (error) throw error;
       router.push("/expenses");
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
-      alert("Error al guardar el gasto.");
+      const msg = err && typeof err === "object" && "message" in err ? String((err as { message: string }).message) : "Error al guardar";
+      alert(`Error al guardar el gasto: ${msg}`);
     } finally {
       setLoading(false);
     }

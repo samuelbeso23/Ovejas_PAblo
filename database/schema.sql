@@ -51,17 +51,24 @@ CREATE INDEX IF NOT EXISTS idx_sheep_ear_tag ON sheep(ear_tag_number);
 CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);
 CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category_id);
 
--- RLS (Row Level Security) - descomentar y configurar cuando tengas auth
--- ALTER TABLE sheep_lists ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE sheep ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE expense_categories ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
+-- RLS: Políticas para permitir acceso (ejecutar si no se guardan datos)
+-- Si falla, prueba: ALTER TABLE nombre_tabla DISABLE ROW LEVEL SECURITY;
 
--- Políticas básicas para permitir todo (ajustar según auth)
--- CREATE POLICY "Allow all on sheep_lists" ON sheep_lists FOR ALL USING (true);
--- CREATE POLICY "Allow all on sheep" ON sheep FOR ALL USING (true);
--- CREATE POLICY "Allow all on expense_categories" ON expense_categories FOR ALL USING (true);
--- CREATE POLICY "Allow all on expenses" ON expenses FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow all sheep_lists" ON sheep_lists;
+ALTER TABLE sheep_lists ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all sheep_lists" ON sheep_lists FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all sheep" ON sheep;
+ALTER TABLE sheep ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all sheep" ON sheep FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all expense_categories" ON expense_categories;
+ALTER TABLE expense_categories ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all expense_categories" ON expense_categories FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all expenses" ON expenses;
+ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all expenses" ON expenses FOR ALL USING (true) WITH CHECK (true);
 
 -- Insertar categorías de gasto por defecto (ejecutar solo una vez tras crear tablas)
 INSERT INTO expense_categories (name, sort_order) VALUES

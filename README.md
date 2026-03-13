@@ -45,6 +45,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-anon-key
 
 En el **SQL Editor** de Supabase, ejecuta el contenido de `database/schema.sql`.
 
+**Si no se guardan datos** (listas, ovejas, gastos): ejecuta `database/fix-rls.sql` para desactivar RLS.
+
 ### 4. Crear buckets de almacenamiento
 
 En **Storage** de Supabase, crea dos buckets públicos:

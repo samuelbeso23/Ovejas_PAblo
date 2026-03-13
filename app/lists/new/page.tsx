@@ -30,9 +30,10 @@ export default function NewListPage() {
 
       if (error) throw error;
       router.push(`/lists/${data.id}`);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
-      alert("Error al crear la lista.");
+      const msg = err && typeof err === "object" && "message" in err ? String((err as { message: string }).message) : "Error al crear";
+      alert(`Error al crear la lista: ${msg}`);
     } finally {
       setLoading(false);
     }

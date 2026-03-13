@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { Camera, RotateCcw } from "lucide-react";
 
 interface CameraCaptureProps {
@@ -15,18 +15,28 @@ export function CameraCapture({ onCapture, onError, className = "" }: CameraCapt
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Asignar el stream al video cuando el elemento esté montado
+  useEffect(() => {
+    if (!isStreaming || !streamRef.current || !videoRef.current) return;
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    video.srcObject = stream;
+    video.play().catch(() => {});
+  }, [isStreaming]);
+
   const startCamera = useCallback(async () => {
     try {
       setError(null);
+      // Usar constraints flexibles: environment en móvil, user en desktop
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
         audio: false,
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
       setIsStreaming(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : "No se pudo acceder a la cámara";
@@ -92,6 +102,7 @@ export function CameraCapture({ onCapture, onError, className = "" }: CameraCapt
             ref={videoRef}
             playsInline
             muted
+            autoPlay
             className="w-full aspect-[4/3] object-cover rounded-2xl bg-black"
           />
           <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-4">

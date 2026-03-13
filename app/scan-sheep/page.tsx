@@ -98,9 +98,10 @@ function ScanSheepContent() {
 
       if (error) throw error;
       router.push(`/lists/${selectedListId}`);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
-      alert("Error al guardar la oveja.");
+      const msg = err && typeof err === "object" && "message" in err ? String((err as { message: string }).message) : "Error al guardar";
+      alert(`Error al guardar la oveja: ${msg}`);
     } finally {
       setLoading(false);
     }
