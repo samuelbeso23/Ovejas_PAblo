@@ -31,8 +31,8 @@ export function CameraCapture({ onCapture, onError, className = "" }: CameraCapt
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
         },
         audio: false,
       });
@@ -74,8 +74,8 @@ export function CameraCapture({ onCapture, onError, className = "" }: CameraCapt
           onCapture(blob);
         }
       },
-      "image/jpeg",
-      0.9
+      "image/png",
+      1
     );
   }, [isStreaming, onCapture, stopCamera]);
 

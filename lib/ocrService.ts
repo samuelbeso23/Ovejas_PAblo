@@ -1,19 +1,79 @@
-import Tesseract from "tesseract.js";
+import { createWorker, PSM } from "tesseract.js";
 
 type ImageSource = string | File | Blob;
 
 /**
- * Ejecuta OCR sobre una imagen y extrae texto
+ * Preprocesa la imagen para mejorar el OCR: escala 2x, escala de grises, contraste
  */
-export async function recognizeText(imageSource: ImageSource): Promise<string> {
-  const result = await Tesseract.recognize(imageSource, "spa+eng", {
+async function preprocessForOCR(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = 2; // Tesseract funciona mejor con imágenes más grandes
+      const w = img.naturalWidth * scale;
+      const h = img.naturalHeight * scale;
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("No canvas context"));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const data = imageData.data;
+      // Escala de grises + aumento de contraste
+      for (let i = 0; i < data.length; i += 4) {
+        const g = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        const c = Math.min(255, Math.max(0, (g - 128) * 1.5 + 128));
+        data[i] = data[i + 1] = data[i + 2] = c;
+      }
+      ctx.putImageData(imageData, 0, 0);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Error al cargar imagen"));
+    };
+    img.src = url;
+  });
+}
+
+/**
+ * OCR optimizado para crotales: solo reconoce dígitos y ES
+ */
+export async function recognizeEarTagText(imageSource: ImageSource): Promise<string> {
+  let processedSource: string | Blob | File = typeof imageSource === "string"
+    ? imageSource
+    : imageSource;
+
+  if (imageSource instanceof Blob && !(imageSource instanceof File)) {
+    processedSource = await preprocessForOCR(imageSource);
+  } else if (imageSource instanceof File) {
+    processedSource = await preprocessForOCR(imageSource);
+  }
+
+  const worker = await createWorker("eng", 1, {
     logger: (m) => {
       if (m.status === "recognizing text") {
-        console.log(`OCR progress: ${Math.round(m.progress * 100)}%`);
+        console.log(`OCR: ${Math.round(m.progress * 100)}%`);
       }
     },
   });
-  return result.data.text;
+
+  try {
+    await worker.setParameters({
+      tessedit_char_whitelist: "0123456789ES",
+      tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
+    });
+    const { data } = await worker.recognize(processedSource);
+    return data.text;
+  } finally {
+    await worker.terminate();
+  }
 }
 
 /**
@@ -97,7 +157,7 @@ export function extractEarTagCandidates(text: string): string[] {
 export async function extractEarTagFromImage(
   imageSource: ImageSource
 ): Promise<{ text: string; candidates: string[] }> {
-  const text = await recognizeText(imageSource);
+  const text = await recognizeEarTagText(imageSource);
   const candidates = extractEarTagCandidates(text);
   return { text, candidates };
 }
@@ -115,7 +175,11 @@ export interface ReceiptOCRResult {
 export async function extractReceiptData(
   imageSource: ImageSource
 ): Promise<ReceiptOCRResult> {
-  const text = await recognizeText(imageSource);
+  const { createWorker } = await import("tesseract.js");
+  const worker = await createWorker("spa+eng", 1);
+  const { data } = await worker.recognize(imageSource);
+  await worker.terminate();
+  const text = data.text;
   const result: ReceiptOCRResult = {
     date: null,
     amount: null,
