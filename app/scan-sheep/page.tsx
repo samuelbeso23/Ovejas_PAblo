@@ -156,9 +156,12 @@ function ScanSheepContent() {
               type="text"
               value={selectedEarTag}
               onChange={(e) => setSelectedEarTag(e.target.value)}
-              placeholder="ES012345678901"
+              placeholder="ES121234512345"
               className="input-field text-lg"
             />
+            <p className="mt-1 text-xs text-slate-400">
+              Formato: ES + 2 díg. CCAA + 5 granja + 5 animal (12 dígitos)
+            </p>
             {candidates.length > 1 && (
               <p className="mt-2 text-sm text-slate-500">
                 Otros candidatos: {candidates.slice(1, 4).join(", ")}

@@ -4,6 +4,7 @@ import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { SheepListActions } from "./SheepListActions";
 import { SheepListItem } from "./SheepListItem";
 import { SheepListWithSearch } from "./SheepListWithSearch";
+import { AddSheepManual } from "./AddSheepManual";
 
 async function getList(id: string) {
   if (!isSupabaseConfigured) return null;
@@ -53,8 +54,9 @@ export default async function ListDetailPage({
 
       <div className="flex gap-2">
         <Link href={`/scan-sheep?list=${id}`} className="btn-primary flex-1 text-center">
-          Añadir oveja
+          Escanear oveja
         </Link>
+        <AddSheepManual listId={id} />
       </div>
 
       <SheepListWithSearch listId={id} sheep={sheep} />

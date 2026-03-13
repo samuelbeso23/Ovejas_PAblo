@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
 import { Plus, Receipt } from "lucide-react";
+import { ExpenseListItem } from "./ExpenseListItem";
 
 async function getExpenses() {
   if (!isSupabaseConfigured) return [];
@@ -39,18 +38,8 @@ export default async function ExpensesPage() {
         </div>
       ) : (
         <ul className="space-y-2">
-          {expenses.map((e: { id: string; date: string; amount: number; description: string | null; expense_categories: { name: string } | null }) => (
-            <li key={e.id} className="card flex items-center justify-between">
-              <div>
-                <p className="font-semibold text-slate-800">
-                  {e.expense_categories?.name ?? "Otros"} — {Number(e.amount).toFixed(2)}€
-                </p>
-                <p className="text-sm text-slate-500">
-                  {format(new Date(e.date), "d MMM yyyy", { locale: es })}
-                  {e.description && ` · ${e.description}`}
-                </p>
-              </div>
-            </li>
+          {expenses.map((e) => (
+            <ExpenseListItem key={e.id} expense={e} />
           ))}
         </ul>
       )}

@@ -17,36 +17,78 @@ export async function recognizeText(imageSource: ImageSource): Promise<string> {
 }
 
 /**
- * Filtra cadenas numéricas largas del texto OCR (posibles números de crotal)
- * Formato esperado: ES012345678901 (letras + números, longitud ~14)
+ * Formato crotal español:
+ * Línea 1: ES (país) + 2 dígitos (comunidad autónoma)
+ * Línea 2: 5 dígitos (código granja)
+ * Línea 3: 5 dígitos (número animal)
+ * Total: ES + 12 dígitos (ej: ES121234512345)
  */
 export function extractEarTagCandidates(text: string): string[] {
   const candidates: string[] = [];
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
-  for (const line of lines) {
-    // Buscar patrones como ES + números
-    const esPattern = /ES\s*\d{10,14}/gi;
-    const esMatches = line.match(esPattern);
-    if (esMatches) {
-      candidates.push(...esMatches.map((m) => m.replace(/\s/g, "")));
-    }
+  // 1. Combinar líneas: el OCR puede leer cada línea por separado
+  const allDigits = lines
+    .flatMap((l) => l.match(/\d+/g) ?? [])
+    .join("");
+  const allText = lines.join(" ").replace(/\s/g, "");
 
-    // Buscar secuencias numéricas largas (10+ dígitos)
-    const longNumbers = line.match(/\d{10,14}/g);
-    if (longNumbers) {
-      candidates.push(...longNumbers);
-    }
+  // 2. Patrón exacto: ES + 2 + 5 + 5 = 12 dígitos
+  const fullPattern = /ES\s*\d{2}\s*\d{5}\s*\d{5}/gi;
+  const fullMatches = text.match(fullPattern);
+  if (fullMatches) {
+    candidates.push(...fullMatches.map((m) => m.replace(/\s/g, "").toUpperCase()));
+  }
 
-    // Si la línea completa parece un crotal (solo letras/números, longitud 12-16)
-    const cleaned = line.replace(/[\s\-\.]/g, "");
-    if (/^[A-Za-z0-9]{12,16}$/.test(cleaned)) {
-      candidates.push(cleaned);
+  // 3. Si tenemos ES y 12 dígitos seguidos
+  const es12Pattern = /ES\s*(\d{12})/gi;
+  let m;
+  while ((m = es12Pattern.exec(text)) !== null) {
+    candidates.push(`ES${m[1]}`);
+  }
+
+  // 4. Reconstruir desde líneas: ES en primera, 2+5+5 en siguientes
+  if (lines.length >= 2) {
+    const first = lines[0].replace(/\s/g, "").toUpperCase();
+    if (first.startsWith("ES") || first === "ES") {
+      const nums = lines.slice(1).flatMap((l) => l.match(/\d+/g) ?? []).join("");
+      if (nums.length >= 12) {
+        candidates.push(`ES${nums.slice(0, 12)}`);
+      }
     }
   }
 
-  // Eliminar duplicados y ordenar por longitud (preferir más largos)
-  return Array.from(new Set(candidates)).sort((a, b) => b.length - a.length);
+  // 5. Solo dígitos en orden: 2+5+5 (si hay ES en el texto)
+  if (text.toUpperCase().includes("ES") && allDigits.length >= 12) {
+    candidates.push(`ES${allDigits.slice(0, 12)}`);
+  }
+
+  // 6. Cualquier ES + números (fallback)
+  const esAny = /ES\s*\d{8,14}/gi;
+  const esAnyMatches = text.match(esAny);
+  if (esAnyMatches) {
+    candidates.push(...esAnyMatches.map((x) => x.replace(/\s/g, "").toUpperCase()));
+  }
+
+  // 7. Secuencia 12 dígitos (2+5+5) sin ES
+  if (/\d{2}\s*\d{5}\s*\d{5}/.test(text)) {
+    const match = text.match(/(\d{2})\s*(\d{5})\s*(\d{5})/);
+    if (match) candidates.push(`ES${match[1]}${match[2]}${match[3]}`);
+  }
+
+  // Filtrar: formato válido ES + 12 dígitos
+  let valid = candidates
+    .map((c) => c.replace(/\s/g, "").toUpperCase())
+    .filter((c) => /^ES\d{12}$/.test(c));
+
+  // Fallback: ES + 10-14 dígitos si no hay exactos
+  if (valid.length === 0) {
+    valid = candidates
+      .map((c) => c.replace(/\s/g, "").toUpperCase())
+      .filter((c) => /^ES\d{10,14}$/.test(c));
+  }
+
+  return Array.from(new Set(valid));
 }
 
 /**
