@@ -32,7 +32,8 @@ function ScanSheepContent() {
     try {
       const { candidates: cands } = await extractEarTagFromImage(blob);
       setCandidates(cands);
-      setSelectedEarTag(cands[0] ?? "");
+      // No pre-rellenar: el OCR suele fallar. Mostrar como sugerencias para que el usuario pulse si es correcto
+      setSelectedEarTag("");
     } catch (err) {
       console.error(err);
       setCandidates([]);
@@ -205,17 +206,24 @@ function ScanSheepContent() {
               className="w-full aspect-[4/3] object-cover rounded-2xl"
             />
           )}
-          {candidates.length === 0 ? (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-              <p className="text-sm text-amber-800 font-medium">
-                No se detectó ningún número. Escribe el crotal manualmente abajo.
-              </p>
-            </div>
-          ) : (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-              <p className="text-sm text-amber-800 font-medium">
-                Revisa el número — si no es correcto, edítalo.
-              </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+            <p className="text-sm text-amber-800 font-medium">
+              Escribe el número del crotal (el OCR suele fallar, es mejor escribir a mano).
+            </p>
+          </div>
+          {candidates.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              <span className="text-sm text-slate-500">Sugerencias OCR (pulsa si es correcto):</span>
+              {candidates.slice(0, 3).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setSelectedEarTag(c)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm font-mono"
+                >
+                  {c}
+                </button>
+              ))}
             </div>
           )}
           <div>
@@ -233,11 +241,6 @@ function ScanSheepContent() {
             <p className="mt-1 text-xs text-slate-400">
               Formato: ES + 2 díg. CCAA + 5 granja + 5 animal (12 dígitos)
             </p>
-            {candidates.length > 1 && (
-              <p className="mt-2 text-sm text-slate-500">
-                Otros candidatos: {candidates.slice(1, 4).join(", ")}
-              </p>
-            )}
           </div>
           <div className="flex gap-3">
             <button type="button" onClick={handleReset} className="btn-secondary flex-1">

@@ -28,16 +28,51 @@ async function rotateImage180(dataUrl: string): Promise<string | null> {
 }
 
 /**
- * Genera variantes de imagen para OCR (cada una puede funcionar mejor según la foto)
+ * Recorta al centro (el crotal suele estar en el medio, menos ruido de fondo)
  */
-async function preprocessVariants(blob: Blob): Promise<string[]> {
-  const results: string[] = [];
+async function centerCrop(blob: Blob, cropRatio = 0.7): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(blob);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const scale = 3; // 3x para texto más grande
+      const sw = img.naturalWidth;
+      const sh = img.naturalHeight;
+      const cw = Math.round(sw * cropRatio);
+      const ch = Math.round(sh * cropRatio);
+      const sx = (sw - cw) / 2;
+      const sy = (sh - ch) / 2;
+      const canvas = document.createElement("canvas");
+      canvas.width = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("No canvas"));
+        return;
+      }
+      ctx.drawImage(img, sx, sy, cw, ch, 0, 0, cw, ch);
+      canvas.toBlob((b) => (b ? resolve(b) : reject()), "image/png", 1);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Error imagen"));
+    };
+    img.src = url;
+  });
+}
+
+/**
+ * Genera variantes de imagen para OCR (cada una puede funcionar mejor según la foto)
+ */
+async function preprocessVariants(blob: Blob): Promise<string[]> {
+  const results: string[] = [];
+  const cropped = await centerCrop(blob).catch(() => blob);
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(cropped);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = 3;
       const w = img.naturalWidth * scale;
       const h = img.naturalHeight * scale;
       const canvas = document.createElement("canvas");
@@ -240,7 +275,8 @@ async function resizeForAPI(blob: Blob, maxSize = 1024): Promise<string> {
  */
 async function recognizeViaOCRSpace(blob: Blob): Promise<string | null> {
   try {
-    const base64 = await resizeForAPI(blob);
+    const cropped = await centerCrop(blob).catch(() => blob);
+    const base64 = await resizeForAPI(cropped);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 25000);
     const res = await fetch("/api/ocr", {
