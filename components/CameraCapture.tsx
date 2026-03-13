@@ -31,8 +31,8 @@ export function CameraCapture({ onCapture, onError, className = "" }: CameraCapt
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
         },
         audio: false,
       });
@@ -60,13 +60,19 @@ export function CameraCapture({ onCapture, onError, className = "" }: CameraCapt
     if (!videoRef.current || !isStreaming) return;
 
     const video = videoRef.current;
+    // Escalar a mínimo 1920px ancho para mejor OCR
+    const minWidth = 1920;
+    const scale = Math.max(1, minWidth / video.videoWidth);
+    const w = Math.round(video.videoWidth * scale);
+    const h = Math.round(video.videoHeight * scale);
+
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    ctx.drawImage(video, 0, 0);
+    ctx.drawImage(video, 0, 0, w, h);
     canvas.toBlob(
       (blob) => {
         if (blob) {
@@ -105,6 +111,12 @@ export function CameraCapture({ onCapture, onError, className = "" }: CameraCapt
             autoPlay
             className="w-full aspect-[4/3] object-cover rounded-2xl bg-black"
           />
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-3/4 aspect-[3/4] border-2 border-white/70 rounded-lg" />
+          </div>
+          <p className="absolute top-2 left-0 right-0 text-center text-white text-sm font-medium drop-shadow">
+            Centra el crotal en el recuadro
+          </p>
           <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-4">
             <button
               type="button"

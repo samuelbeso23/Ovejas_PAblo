@@ -28,17 +28,16 @@ async function rotateImage180(dataUrl: string): Promise<string | null> {
 }
 
 /**
- * Preprocesa para crotales amarillos con texto negro:
- * - Escala 2x
- * - Binarización (negro/blanco) para mejorar contraste
+ * Genera variantes de imagen para OCR (cada una puede funcionar mejor según la foto)
  */
-async function preprocessForOCR(blob: Blob): Promise<string> {
+async function preprocessVariants(blob: Blob): Promise<string[]> {
+  const results: string[] = [];
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(blob);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const scale = 2;
+      const scale = 3; // 3x para texto más grande
       const w = img.naturalWidth * scale;
       const h = img.naturalHeight * scale;
       const canvas = document.createElement("canvas");
@@ -50,16 +49,22 @@ async function preprocessForOCR(blob: Blob): Promise<string> {
         return;
       }
       ctx.drawImage(img, 0, 0, w, h);
+      // 1. Original escalada (sin tocar)
+      results.push(canvas.toDataURL("image/png"));
+
       const imageData = ctx.getImageData(0, 0, w, h);
       const data = imageData.data;
-      // Binarización: texto negro sobre amarillo -> negro=0, resto=255
+
+      // 2. Binarización suave (umbral 130 - más texto negro)
       for (let i = 0; i < data.length; i += 4) {
         const g = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-        const v = g < 140 ? 0 : 255; // Umbral para negro sobre fondo claro
+        const v = g < 130 ? 0 : 255;
         data[i] = data[i + 1] = data[i + 2] = v;
       }
       ctx.putImageData(imageData, 0, 0);
-      resolve(canvas.toDataURL("image/png"));
+      results.push(canvas.toDataURL("image/png"));
+
+      resolve(results);
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -70,16 +75,15 @@ async function preprocessForOCR(blob: Blob): Promise<string> {
 }
 
 /**
- * OCR para crotales: SIN whitelist (evita forzar caracteres erróneos)
- * Ejecuta 2 pasadas: normal y con whitelist, combina resultados
+ * OCR para crotales: múltiples pasadas y variantes para máxima detección
  */
 export async function recognizeEarTagText(imageSource: ImageSource): Promise<string> {
-  let processedSource: string | Blob | File = typeof imageSource === "string"
-    ? imageSource
-    : imageSource;
+  let variants: string[] = [];
 
-  if (typeof imageSource !== "string") {
-    processedSource = await preprocessForOCR(imageSource as Blob);
+  if (typeof imageSource === "string") {
+    variants = [imageSource];
+  } else {
+    variants = await preprocessVariants(imageSource as Blob);
   }
 
   const worker = await createWorker("eng", 1, {
@@ -91,20 +95,42 @@ export async function recognizeEarTagText(imageSource: ImageSource): Promise<str
   });
 
   try {
-    await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
-    // Rotación automática + probar también girado 180° (crotales suelen salir invertidos)
-    const { data: data1 } = await worker.recognize(processedSource, { rotateAuto: true });
-    const text1 = data1.text;
-    const cands1 = extractEarTagCandidates(text1);
-    if (cands1.length > 0) return text1;
-    // Si no detectó nada, probar con rotación 180° explícita
-    const rotated = typeof processedSource === "string" ? await rotateImage180(processedSource) : null;
-    if (rotated) {
-      const { data: data2 } = await worker.recognize(rotated, { rotateAuto: false });
-      const cands2 = extractEarTagCandidates(data2.text);
-      if (cands2.length > cands1.length) return data2.text;
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+    let bestText = "";
+    let bestCands: string[] = [];
+
+    for (const img of variants) {
+      // Pasada 1: rotación automática
+      const { data: d1 } = await worker.recognize(img, { rotateAuto: true });
+      const c1 = extractEarTagCandidates(d1.text);
+      if (c1.length > bestCands.length) {
+        bestCands = c1;
+        bestText = d1.text;
+      }
+      // Pasada 2: girado 180° (crotales a menudo invertidos)
+      const rotated = await rotateImage180(img);
+      if (rotated) {
+        const { data: d2 } = await worker.recognize(rotated, { rotateAuto: false });
+        const c2 = extractEarTagCandidates(d2.text);
+        if (c2.length > bestCands.length) {
+          bestCands = c2;
+          bestText = d2.text;
+        }
+      }
     }
-    return text1;
+
+    // Si nada, probar con whitelist (último recurso)
+    if (bestCands.length === 0 && variants[0]) {
+      await worker.setParameters({
+        tessedit_char_whitelist: "0123456789ES",
+        tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
+      });
+      const { data: d } = await worker.recognize(variants[0], { rotateAuto: true });
+      const c = extractEarTagCandidates(d.text);
+      if (c.length > 0) return d.text;
+    }
+
+    return bestText;
   } finally {
     await worker.terminate();
   }
