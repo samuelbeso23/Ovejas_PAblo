@@ -201,12 +201,46 @@ export function extractEarTagCandidates(text: string): string[] {
 }
 
 /**
+ * Intenta OCR.space API (más preciso para crotales) - requiere OCR_SPACE_API_KEY
+ */
+async function recognizeViaOCRSpace(blob: Blob): Promise<string | null> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: base64 }),
+      })
+        .then((r) => r.json())
+        .then((data) => resolve(data.text ?? null))
+        .catch(() => resolve(null));
+    };
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
  * Procesa imagen y devuelve candidatos a número de crotal
+ * Usa OCR.space si está configurado, si no Tesseract
  */
 export async function extractEarTagFromImage(
   imageSource: ImageSource
 ): Promise<{ text: string; candidates: string[] }> {
-  const text = await recognizeEarTagText(imageSource);
+  let text = "";
+
+  if (typeof imageSource !== "string" && imageSource instanceof Blob) {
+    const apiText = await recognizeViaOCRSpace(imageSource);
+    if (apiText) {
+      text = apiText;
+      const cands = extractEarTagCandidates(text);
+      if (cands.length > 0) return { text, candidates: cands };
+    }
+  }
+
+  text = await recognizeEarTagText(imageSource);
   const candidates = extractEarTagCandidates(text);
   return { text, candidates };
 }

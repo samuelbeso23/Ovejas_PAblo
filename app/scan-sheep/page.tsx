@@ -33,6 +33,7 @@ function ScanSheepContent() {
       const { candidates: cands } = await extractEarTagFromImage(blob);
       setCandidates(cands);
       setSelectedEarTag(cands[0] ?? "");
+      setStep("confirm");
     } catch (err) {
       console.error(err);
       setCandidates([]);

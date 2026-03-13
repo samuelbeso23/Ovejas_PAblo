@@ -39,6 +39,9 @@ Edita `.env.local`:
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-anon-key
+
+# Opcional: OCR.space mejora mucho la detección de crotales (gratis: https://ocr.space/ocrapi/freekey)
+OCR_SPACE_API_KEY=tu-api-key
 ```
 
 ### 3. Ejecutar el esquema SQL

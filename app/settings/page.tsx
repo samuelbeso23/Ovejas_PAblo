@@ -38,6 +38,21 @@ export default async function SettingsPage() {
 
       <section className="card">
         <h2 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
+          OCR (crotales)
+        </h2>
+        {process.env.OCR_SPACE_API_KEY ? (
+          <p className="text-sm text-green-600">OCR.space configurado — mejor detección.</p>
+        ) : (
+          <div className="text-sm text-slate-600 space-y-2">
+            <p>Para mejorar la detección de crotales, añade una API key gratuita de OCR.space:</p>
+            <p className="text-xs">1. Regístrate en <a href="https://ocr.space/ocrapi/freekey" target="_blank" rel="noopener" className="text-primary-600 underline">ocr.space/ocrapi/freekey</a></p>
+            <p className="text-xs">2. Añade en .env.local: <code>OCR_SPACE_API_KEY=tu-key</code></p>
+          </div>
+        )}
+      </section>
+
+      <section className="card">
+        <h2 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
           <Key className="w-5 h-5" />
           Categorías de gasto
         </h2>
