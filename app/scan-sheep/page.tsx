@@ -33,13 +33,12 @@ function ScanSheepContent() {
       const { candidates: cands } = await extractEarTagFromImage(blob);
       setCandidates(cands);
       setSelectedEarTag(cands[0] ?? "");
-      setStep("confirm");
     } catch (err) {
       console.error(err);
       setCandidates([]);
       setSelectedEarTag("");
-      setStep("confirm");
     } finally {
+      setStep("confirm");
       setLoading(false);
     }
   };
@@ -54,16 +53,25 @@ function ScanSheepContent() {
 
     setLoading(true);
     try {
-      const { data: listsData } = await supabase.from("sheep_lists").select("id, name");
-      setLists(listsData ?? []);
-      const preSelect = listParam && listsData?.some((l) => l.id === listParam)
+      const { data: listsData, error } = await supabase.from("sheep_lists").select("id, name");
+      if (error) throw error;
+      const listsArr = listsData ?? [];
+      setLists(listsArr);
+
+      if (listsArr.length === 0) {
+        alert("No hay listas. Crea una lista primero en la pestaña Listas.");
+        setLoading(false);
+        return;
+      }
+
+      const preSelect = listParam && listsArr.some((l) => l.id === listParam)
         ? listParam
-        : listsData?.[0]?.id ?? "";
+        : listsArr[0]?.id ?? "";
       setSelectedListId(preSelect);
       setStep("list");
     } catch (err) {
       console.error(err);
-      alert("Error al cargar listas.");
+      alert("Error al cargar listas. Comprueba la conexión.");
     } finally {
       setLoading(false);
     }
@@ -197,11 +205,19 @@ function ScanSheepContent() {
               className="w-full aspect-[4/3] object-cover rounded-2xl"
             />
           )}
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-            <p className="text-sm text-amber-800 font-medium">
-              Revisa el número — el OCR puede fallar. Si no es correcto, escríbelo manualmente.
-            </p>
-          </div>
+          {candidates.length === 0 ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+              <p className="text-sm text-amber-800 font-medium">
+                No se detectó ningún número. Escribe el crotal manualmente abajo.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+              <p className="text-sm text-amber-800 font-medium">
+                Revisa el número — si no es correcto, edítalo.
+              </p>
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
               Número de crotal (edita si es necesario)
@@ -245,6 +261,15 @@ function ScanSheepContent() {
           <p className="text-slate-600">
             Añadir <strong>{selectedEarTag}</strong> a:
           </p>
+          {lists.length === 0 ? (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <p className="text-sm text-red-800 font-medium">No hay listas creadas.</p>
+              <p className="text-sm text-red-700 mt-1">Crea una lista primero en la pestaña Listas.</p>
+              <Link href="/lists/new" className="mt-3 inline-block btn-primary text-center">
+                Crear lista
+              </Link>
+            </div>
+          ) : (
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">Lista</label>
             <select
@@ -259,6 +284,9 @@ function ScanSheepContent() {
               ))}
             </select>
           </div>
+          )}
+          {lists.length > 0 && (
+            <>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">Notas (opcional)</label>
             <input
@@ -276,12 +304,14 @@ function ScanSheepContent() {
             <button
               type="button"
               onClick={handleSave}
-              disabled={loading}
+              disabled={loading || !selectedListId}
               className="btn-primary flex-1 flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Guardar"}
             </button>
           </div>
+            </>
+          )}
         </div>
       )}
     </div>

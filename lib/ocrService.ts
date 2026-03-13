@@ -201,25 +201,60 @@ export function extractEarTagCandidates(text: string): string[] {
 }
 
 /**
+ * Redimensiona imagen para reducir tamaño (OCR.space límite 1MB)
+ */
+async function resizeForAPI(blob: Blob, maxSize = 1024): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.naturalWidth;
+      let h = img.naturalHeight;
+      if (w > maxSize || h > maxSize) {
+        const r = Math.min(maxSize / w, maxSize / h);
+        w = Math.round(w * r);
+        h = Math.round(h * r);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("No canvas"));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Error imagen"));
+    };
+    img.src = url;
+  });
+}
+
+/**
  * Intenta OCR.space API (más preciso para crotales) - requiere OCR_SPACE_API_KEY
  */
 async function recognizeViaOCRSpace(blob: Blob): Promise<string | null> {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64 = reader.result as string;
-      fetch("/api/ocr", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: base64 }),
-      })
-        .then((r) => r.json())
-        .then((data) => resolve(data.text ?? null))
-        .catch(() => resolve(null));
-    };
-    reader.onerror = () => resolve(null);
-    reader.readAsDataURL(blob);
-  });
+  try {
+    const base64 = await resizeForAPI(blob);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
+    const res = await fetch("/api/ocr", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: base64 }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    const data = await res.json();
+    return data.text ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
